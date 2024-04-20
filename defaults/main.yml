@@ -1,0 +1,8 @@
+---
+# defaults file for pkghold
+
+pkghold_force_regather_facts: no
+pkghold_unhold_also_uninstalled: yes
+
+# pkghold_pkgs:  # []
+# pkghold_state:  # hold, unhold

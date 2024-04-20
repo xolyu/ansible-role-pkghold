@@ -1,0 +1,57 @@
+---
+# tasks file for pkghold
+
+- name: Assert that apt is used on Debian bases system.
+  assert:
+    that:
+      - ansible_pkg_mgr == 'apt'
+      - ansible_os_family == 'Debian'
+
+- name: Block - run only when values are correct
+  when:
+    - pkghold_pkgs is defined
+    - pkghold_pkgs | length
+    - pkghold_state is defined
+    - pkghold_state in ['hold', 'unhold']
+
+  block:
+
+    - name: Query system packages.
+      package_facts:
+      when: >
+        ansible_facts.packages is not defined  or
+        pkghold_force_regather_facts
+
+    - name: Query all hold packages.
+      command: apt-mark showhold
+      changed_when: false
+      register: _pkghold_holded
+      when:
+        - pkghold_state == 'unhold'
+        - pkghold_unhold_also_uninstalled
+
+    - name: "Mark packages with holding state {{ (pkghold_state != 'unhold') | ternary('hold', 'unhold') }}."
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: "{{ _pkgs_hold_state | ternary('hold', 'install') }}"
+      with_items: "{{ _pkgs_list }}"
+
+      vars:
+        # prepare ansible_facts.packages
+        pkgs_values: "{{ ansible_facts.packages | dict2items | map(attribute='value') | flatten }}"
+
+        # prepare already holded packages
+        pkgs_holded: "{{ _pkghold_holded.stdout_lines | default([]) }}"
+
+        # extract strings and filter in installed packages list
+        all_str_pkgs: "{{ pkghold_pkgs | select('string') }}"
+        pkgs_str: "{{ all_str_pkgs | select('in', ansible_facts.packages | list) }}"
+        pkgs_str_holded: "{{ all_str_pkgs | select('in', pkgs_holded) | reject('in', pkgs_str) }}"
+
+        # extract dicts with origin
+        origins: "{{ pkghold_pkgs | select('mapping') | selectattr('origin') | map(attribute='origin') }}"
+        pkgs_origin: "{{ pkgs_values | selectattr('origin', 'in', origins) | map(attribute='name') }}"
+
+        # vars for the selection tasks
+        _pkgs_list: "{{ pkgs_str + pkgs_origin + pkgs_str_holded }}"
+        _pkgs_hold_state: "{{ pkghold_state != 'unhold' }}"
